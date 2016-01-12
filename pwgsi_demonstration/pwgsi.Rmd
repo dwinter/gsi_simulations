@@ -1,0 +1,177 @@
+---
+title: "Applying the Genealogical Soritng Index in pairwise fashion"
+author: David Winter    
+output: pdf_document
+---
+
+## Introduction
+
+In our in-review publication [url to preprint to come], we demonstrate the the
+way in which the Genealogical Sorting Index (_gsi_) is typically used in species
+delimitation studies can generated misleading results. Specifically, the
+ _gsi_ value calculated for a given group depends on the structure of the 
+ entire tree, meaning the inclusion or exclusion of un-related groups can lead
+ to increased _gsi_ values. In our manuscript we suggest one way to account for
+ this property while retaining the useful features of _gsi_, which we call the
+ pairwise-gsi or _pwgsi_. 
+
+The rationale for taking a pairwise approach is discussed in the manuscript,
+here we supplement that discussion by demonstrated how the _pwgsi_ can be
+calculated within R using the existing _genealogicalSorting_ package:
+
+## A typical analysis
+
+The repository includes a phylogeny and `imap` table, mapping the individuals in
+the tips of that tree to a given group (here labeled from `A` to `E`):
+
+```{r read}
+library(genealogicalSorting)
+tr <- read.tree("sample.tr")
+assignments <- read.table("samples.imap", stringsAsFactors=FALSE)
+head(assignments)
+```
+If we plot the tree with the tips coloured to match the group-assignments we
+find that groups `A` and `B` are mono phonetic with respect to all others, but
+groups `C`, `D` and `E` are mixed around:
+
+
+```{r plot, fig.width=5, fig.height=8,}
+tip_to_group <- sapply(tr$tip.label, match, assignments[,1])
+#RColorBrewer::brewer.pal(name="Set1", n=5)
+grps <- assignments[tip_to_group,2]
+grp_cols <- c("A" = "#E41A1C", 
+              "B" = "#377EB8", 
+              "C" = "#4DAF4A", 
+              "D" = "#984EA3", 
+              "E" = "#FF7F00")
+plot(tr, show.tip.label=FALSE)
+tiplabels(grps, bg=grp_cols[grps])
+```
+
+Even though the "middle" groups here are not monophyletic, they could still be
+species in the process of diverging. The _gsi_ is one of several approaches to
+testing this hypothesis. Using the existing library we would calculate values
+for each group in this tree... 
+
+```{r gsi}
+gsi_vals <- gsi(tr, 0, grps)
+gsi_vals
+```
+... and use a permutation test to obtain p-values under the null hypothesis that
+there are no divergent species _in the tree as a whole_:
+
+```{r permute}
+set.seed(321)
+permuted <- permutationTest(tr, 0, grps, 1000)
+data.frame(group=gsi_vals$group,
+           gsi=gsi_vals$gsi, 
+           pval=permuted$pval)
+```
+
+## A pairwise analysis
+
+So, in the above case we found that, in addition to the monophyletic groups,  there
+is a significant signal of exclusive ancestry for groups `D` and `C`.  But the
+null hypothesis being tested by that p-value relates to the entire tree, and we
+already new that groups `A` and `B` where monophyletic. One way to narrow our
+focus down to the groups that we are less sure about is calculate the _gsi_
+in pairwise-fashion. To do this, we first drop all the tips that are not part
+of the groups being compared ...
+
+```{r drop}
+keepers <-  c("C", "D")
+subtree <- drop.tip(tr, tr$tip.label[!(grps %in% keepers)])
+sub_grps <- grps[grps %in% keepers]
+plot(subtree, show.tip.label=F)
+tiplabels(sub_grps, bg=grp_cols[sub_grps])
+```
+
+... then calculate _gsi_ for this pair of groups on this subtree:
+
+```{r pwgsi}
+gsi_vals <- gsi(subtree, 0, sub_grps)
+permute <- permutationTest(subtree, 0, sub_grps, 1000)
+data.frame(group=gsi_vals$group, 
+           gsi=gsi_vals$gsi, 
+           pval=permute$pval)
+```
+
+The signal of exlusive ancestry that seemed to exist for these groups has 
+dissipated now that we've removed the well resolved groups from the tree. 
+
+## Making the _pwgsi_ easy to calculate
+
+As you can see from the code above, the process of dropping tips and selecting
+only the group-labels associated with a given pairwise test takes some work. We
+can this process easier by writing functions to perform the necessary steps. Note, 
+we are now calculating the mean of the two _gsi_ values in a pairwise comparison
+(the _pwgsi_):
+
+
+```{r make_fxn}
+pw_permute <- function(tree, assignments){
+    assignments <- sample(assignments)
+    mean(gsi(tree, 0, assignments)$gsi)
+}
+
+pwgsi <- function(groups, tree, assignments, nperm=1000){
+    if(length(groups) !=2) {
+        stop("argument 'groups' must specify exactly two groups for pwgsi")
+    }
+    subtree <- drop.tip(tree, tree$tip.label[!(assignments %in% groups)])
+    sub_grps <- grps[assignments %in% groups]
+    pwgsi <- mean(gsi(subtree, 0, sub_grps)$gsi)
+    null_distr <- replicate(nperm, pw_permute(tree, assignments))
+    list(Grp1 = groups[1], 
+         Grp2=groups[2], 
+         pwgsi=pwgsi, 
+         pval=mean(pwgsi <= null_distr))
+}
+
+pwgsi_analysis <- function(tree, assignments, nperm=1000, focal_grps=NULL){
+    if(is.null(focal_grps)){
+        focal_grps <- unique(assignments)
+    }
+    to_compare = combn(focal_grps, 2)
+    cat("Calculating pwgsi for", dim(to_compare)[2], "pairwise-comparisons...\n")
+    res <- apply(to_compare, 2, function(g) pwgsi(g, tree, assignments, nperm))
+    do.call(rbind.data.frame, res)    
+}
+```
+
+The most important of these function is `pwgsi_analysis`, which calculates  
+_pwgsi_ for two-group combinations. It takes a complete tree (i.e with no
+dropped tips), a vector of group assignments (such as can be produced by
+`readAssisgnmentFile` from the `genealogicalSorting` package) and the number of permutations
+from which to calculate p-values as input. The optional argument `focal_grps`
+specifies the groups from which pairwise comparisons will be made. If
+has more than two groups, the functional will calculate _pwgsi_ for 
+all unique group-pairs. So, for instance, can calculate _pwgsi_ using all groups
+other than the well-resolved `A` and `B`:
+
+
+```{r, demo}
+pwgsi_analysis(tr, grps, 1000, c("C", "D", "E"))
+```
+
+If `focal_grps` is not specified, this function calculates all possible 
+pairwise comparisons. With a little bit of fussing, we can use the `data.frame`
+returned by `pwgsi_analysis` to plot of _pwgsi_ visualising the degree of
+exclusive ancestry exhibited been all possible group-pairs in this example: 
+
+
+```{r matix}
+library(ggplot2)
+res <- pwgsi_analysis(tr, grps, 100)
+
+res$Grp1 <- factor(res$Grp1, unique(as.character(res$Grp1)))
+res$Grp2 <- factor(res$Grp2, rev(unique(as.character(res$Grp2))))
+ggplot(res, aes(Grp1, Grp2, fill=pwgsi)) + geom_tile(colour="white")
+```
+
+## Using these functions. 
+
+This contents of this file are made freely available under a
+[CC0](https://creativecommons.org/publicdomain/zero/1.0/) license, so you are
+free to use the specific functions  defined about in your analyses. If you do
+so, please cite both our paper [citation to come] and [Cummings 2008](http://10.1111/j.1558-5646.2008.00442.x) for the original description of the _gsi_.

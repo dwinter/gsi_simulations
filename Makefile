@@ -21,6 +21,13 @@ plots:	figures/divergence_gsi.svg
 figures/divergence_gsi.svg: data/gsi_2v4.csv data/gsi_migration.csv
 	scripts/plots.r
 
+
+
+Suppliment:
+	Rscript -e 'rmarkdown::render("pwgsi_demonstration/pwgsi.Rmd")'
+	
+
+
 .PHONY: test
 test:
 	scripts/make_samples.py 1 divergence
@@ -34,4 +41,6 @@ clean:
 	 rm -f data/*.csv
 	 rm -f figures/*.svg
 	 rm -f trees/*.tr
+	 rm -rf pwgsi_demonstration/pwgsi_files/
+	 rm -rf pwgsi_demonstration/pwgsi.pdf
 
