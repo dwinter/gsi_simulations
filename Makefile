@@ -23,7 +23,7 @@ figures/divergence_gsi.svg: data/gsi_2v4.csv data/gsi_migration.csv
 
 
 
-Suppliment:
+Supplement:
 	Rscript -e 'rmarkdown::render("pwgsi_demonstration/pwgsi.Rmd")'
 	
 
