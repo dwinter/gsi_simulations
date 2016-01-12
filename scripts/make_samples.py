@@ -25,14 +25,14 @@ def sim_divergence(n=500):
     for theta in (i/20.0 for i in range(0,21)):
         cmd = base_gsi.format(n, theta)
         subprocess.call(cmd, shell=True)
-    print 'wrote {0} trees for divergence'.format(n)
+    print ('wrote {0} trees for divergence'.format(n))
 
 def sim_migration(n=500):
     """ """
     for Nm in [0.1, 1,2,5, 10, 25, 100]:
         cmd = base_mig.format(n, Nm)
         subprocess.call(cmd, shell=True)
-    print 'wrote {0} trees for migration'.format(n)
+    print ('wrote {0} trees for migration'.format(n))
     
 
 def main(n=500, divergence=True, migration=True):
